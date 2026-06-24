@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "pages/api/extract.js": {
+      "maxDuration": 60
+    }
+  }
+}
