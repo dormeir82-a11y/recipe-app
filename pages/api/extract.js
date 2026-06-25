@@ -7,6 +7,7 @@ export default async function handler(req, res) {
   if (!url) return res.status(400).json({ error: 'URL required' });
 
   try {
+    // Step 1: Fetch HTML
     const pageRes = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
@@ -16,28 +17,30 @@ export default async function handler(req, res) {
     }
 
     const html = await pageRes.text();
-    const $ = cheerio.load(html);
 
-    let content = '';
-    $('article, [role="main"], .post-content, .video-description, .description').each((i, el) => {
-      content += $(el).text() + '\n';
-    });
-
-    if (!content || content.length < 50) {
-      content = $('body').text();
-    }
-
-    content = content.replace(/\s+/g, ' ').replace(/[\n\r]+/g, '\n').trim();
+    // Simple text extraction: remove HTML tags, scripts, styles
+    let content = html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     if (!content || content.length < 30) {
       throw new Error('לא ניתן לחלץ תוכן מהכתובת הזאת. נסה קישור אחר.');
     }
 
+    // Step 2: Detect platform
     const platform = url.includes('youtube') || url.includes('youtu.be') ? 'youtube'
       : url.includes('instagram') ? 'instagram'
       : url.includes('facebook') || url.includes('fb.com') || url.includes('fb.watch') ? 'facebook'
       : 'אחר';
 
+    // Step 3: Extract recipe with Gemini
     const prompt = `אתה מומחה בחילוץ מתכונים. חלץ את המתכון מהתוכן הבא והחזר JSON בלבד (ללא markdown blocks, ללא טקסט נוסף לפני או אחרי ה-JSON).
 
 מבנה ה-JSON הנדרש בדיוק:
@@ -86,6 +89,7 @@ ${content.substring(0, 6000)}`;
     const geminiData = await geminiRes.json();
     const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
+    // Parse JSON — be lenient about markdown fences
     const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('לא זוהה מתכון בתוכן זה. נסה קישור אחר.');
@@ -93,6 +97,7 @@ ${content.substring(0, 6000)}`;
     const recipe = JSON.parse(jsonMatch[0]);
     recipe.video_url = url;
 
+    // Ensure arrays
     if (!Array.isArray(recipe.ingredients)) recipe.ingredients = [];
     if (!Array.isArray(recipe.steps)) recipe.steps = [];
     if (!Array.isArray(recipe.tags)) recipe.tags = [];
@@ -108,7 +113,6 @@ ${content.substring(0, 6000)}`;
 export const config = {
   api: {
     bodyParser: { sizeLimit: '1mb' },
-    Replace Apify with Cheerio - fix 401 error
     responseLimit: false,
   },
 };
